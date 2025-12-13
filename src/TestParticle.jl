@@ -38,7 +38,14 @@ export TraceProblem, CartesianGrid, RectilinearGrid, StructuredGrid
 """
 Type for the particles, `Proton`, `Electron`, `Ion`, or `User`.
 """
-@enum Species Proton Electron Ion User
+
+struct Species{M, Q}
+   m::M
+   q::Q
+end
+
+Ion(m, q = 1) = Species(m * mᵢ, q * qᵢ)
+Ion(; m = 1, q = 1) = Species(m * mᵢ, q * qᵢ)
 
 include("types.jl")
 include("fields/Fields.jl")

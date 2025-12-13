@@ -67,9 +67,10 @@ function prepare_field(f::AbstractArray, x...; gridtype, order, bc, kw...)
    Field(getinterp(gridtype, f, x..., order, bc; kw...))
 end
 
-function _prepare(E, B, F, args...; species::Species = Proton, q = 1.0,
-      m = 1.0, gridtype = CartesianGrid, kw...)
-   q, m = getchargemass(species, q, m)
+function _prepare(E, B, F, args...; species::Species = Proton, q = nothing,
+      m = nothing, gridtype = CartesianGrid, kw...)
+   q = @something q species.q
+   m = @something m species.m
    q2m = q / m
    fE = prepare_field(E, args...; gridtype, kw...)
    fB = prepare_field(B, args...; gridtype, kw...)
@@ -90,7 +91,9 @@ Return a tuple consists of particle charge-mass ratio for a prescribed `species`
 mass `m` for a prescribed `species`, analytic/interpolated EM field functions, and external force `F`.
 
 Prescribed `species` are `Electron` and `Proton`;
-other species can be manually specified with `species=Ion/User`, `q` and `m`.
+other species can be manually specified with `q` and `m` or `Ion(q, m)`.
+
+For `Ion`, `q` and `m` are charge and mass numbers.
 
 Direct range input for uniform grid in 1/2/3D is supported.
 For 1D grid, an additional keyword `dir` is used for specifying the spatial direction, 1 -> x, 2 -> y, 3 -> z.
