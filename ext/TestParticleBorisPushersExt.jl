@@ -124,6 +124,13 @@ end
     return data
 end
 
+_saveat_vector(saveat, tspan) = SavingPlan(saveat, tspan, eltype(tspan)).times
+
+# Trajectories may change `tspan` in `prob_func`, so an ensemble only unifies the
+# type of `saveat` and leaves the times to each trajectory.
+_saveat_type(saveat::Number, ::Type{T}) where {T} = T(saveat)
+_saveat_type(saveat, ::Type{T}) where {T} = collect(T, saveat)
+
 _boris_finalize(sol, p, ::Val{false}, ::Val{false}) = sol
 
 function _boris_finalize(
@@ -162,17 +169,14 @@ function SciMLBase.solve(
     ode_prob = _boris_problem(prob)
     callback = _boris_callback(isoutside)
 
-    sol = if isempty(saveat)
-        solve(
-            ode_prob, alg; dt = step, save_start, save_end, save_everystep,
-            maxiters, callback, dense = false, kwargs...
-        )
-    else
-        solve(
-            ode_prob, alg; dt = step, saveat, save_start, save_end,
-            maxiters, callback, dense = false, kwargs...
-        )
-    end
+    # Every `saveat` form reaches the integrator as the same vector type, so all
+    # of them share the specialization compiled in the precompile workload.
+    # Requested times take precedence over saving every step.
+    sol = solve(
+        ode_prob, alg; dt = step, saveat = _saveat_vector(saveat, ode_prob.tspan),
+        save_start, save_end, save_everystep = save_everystep && isempty(saveat),
+        maxiters, callback, dense = false, kwargs...
+    )
 
     return if save_fields
         save_work ? _boris_finalize(sol, prob.p, Val(true), Val(true)) :
@@ -189,13 +193,18 @@ function SciMLBase.solve(
         trajectories::Int = 1,
         seed::Union{Nothing, Integer} = nothing,
         safetycopy::Bool = false,
+        saveat = (),
+        save_everystep::Bool = isempty(saveat),
         kwargs...
     )
     ensemble_prob = EnsembleProblem(
         prob; prob_func = prob.prob_func, safetycopy
     )
 
-    return solve(ensemble_prob, alg, ensemblealg; trajectories, seed, kwargs...)
+    return solve(
+        ensemble_prob, alg, ensemblealg; trajectories, seed,
+        saveat = _saveat_type(saveat, eltype(prob.tspan)), save_everystep, kwargs...
+    )
 end
 
 # --- AdaptiveHybrid Solver Implementation ---
@@ -659,6 +668,7 @@ BorisPushers.adapt_field_to_gpu(g::GPUSphericalGrid, backend::Backend) =
             prob = TraceProblem(stateinit, tspan, param)
 
             solve(prob, Boris(); dt, saveat = 100 * dt)
+            solve(prob, Boris(), EnsembleThreads(); dt)
             solve(prob, Boris(), EnsembleThreads(); dt, saveat = 100 * dt)
             solve(prob, Boris(), CPU(); dt, saveat = 100 * dt)
 
