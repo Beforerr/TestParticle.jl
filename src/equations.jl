@@ -39,25 +39,42 @@ function get_dv!(dv, v, x, p, t)
     return
 end
 
-function get_relativistic_v(γv::AbstractVector{T}; c = c) where {T <: AbstractFloat}
-    c_val = T(c)
-    γ²v² = γv[1]^2 + γv[2]^2 + γv[3]^2
-    if γ²v² > eps(T)
-        v̂ = normalize(γv)
-    else # no velocity
-        v̂ = SVector{3, T}(0, 0, 0)
-    end
-    return √(γ²v² / (1 + γ²v² / c_val^2)) * v̂
-end
+"""
+    get_relativistic_v(γv; c = c)
 
+Velocity of a particle with the relativistic velocity `γv`.
+"""
 function get_relativistic_v(γv; c = c)
     γ²v² = γv[1]^2 + γv[2]^2 + γv[3]^2
-    if γ²v² > eps(eltype(γv))
-        v̂ = normalize(γv)
-    else # no velocity
-        v̂ = zero(γv)
+    return γv / √(1 + γ²v² / oftype(float(γ²v²), c)^2)
+end
+
+@inline function _store!(dy, dx, dv)
+    @inbounds for i in 1:3
+        dy[i] = dx[i]
+        dy[i + 3] = dv[i]
     end
-    return √(γ²v² / (1 + γ²v² / c^2)) * v̂
+    return
+end
+
+@inline function _trace_rhs(y, p, t)
+    v = get_v(y)
+    return v, get_dv(v, y, p, t)
+end
+
+@inline function _trace_relativistic_rhs(y, p, t)
+    v = get_relativistic_v(get_v(y))
+    return v, get_dv(v, y, p, t)
+end
+
+@inline function _trace_normalized_rhs(y, p, t)
+    v = get_v(y)
+    return v, v × p.B(y, t) + p.E(y, t)
+end
+
+@inline function _trace_relativistic_normalized_rhs(y, p, t)
+    v = get_relativistic_v(get_v(y); c = 1)
+    return v, v × p.B(y, t) + p.E(y, t)
 end
 
 """
@@ -65,43 +82,73 @@ end
 
 ODE equations for charged particle moving in EM field and external force field with in-place form.
 """
-function trace!(dy, y, p, t)
-    v = get_v(y)
-    dv = get_dv(v, y, p, t)
-    @inbounds dy[1] = v[1]
-    @inbounds dy[2] = v[2]
-    @inbounds dy[3] = v[3]
-    @inbounds dy[4] = dv[1]
-    @inbounds dy[5] = dv[2]
-    @inbounds dy[6] = dv[3]
-
-    return
-end
+trace!(dy, y, p, t) = _store!(dy, _trace_rhs(y, p, t)...)
 
 """
     trace(y, p, t)::SVector{6}
 
 ODE equations for charged particle moving in EM field and external force field with out-of-place form.
 """
-function trace(y, p, t)
-    v = y[SA[4:6...]]
-    dv = get_dv(v, y, p, t)
-    return vcat(v, dv)
-end
+trace(y, p, t) = vcat(_trace_rhs(y, p, t)...)
 
 """
     trace_relativistic!(dy, y, p, t)
 
 ODE equations for relativistic charged particle (x, γv) moving in EM field with in-place form.
 """
-function trace_relativistic!(dy, y, p, t)
-    γv = get_v(y)
-    v = get_relativistic_v(γv)
-    @inbounds dy[1:3] = v
-    @inbounds dy[4:6] = get_dv(v, y, p, t)
+trace_relativistic!(dy, y, p, t) = _store!(dy, _trace_relativistic_rhs(y, p, t)...)
 
-    return
-end
+"""
+    trace_relativistic(y, p, t) -> SVector{6}
+
+ODE equations for relativistic charged particle (x, γv) moving in static EM field with out-of-place form.
+"""
+trace_relativistic(y, p, t) = vcat(_trace_relativistic_rhs(y, p, t)...)
+
+"""
+    trace_normalized!(dy, y, p, t)
+
+Normalized ODE equations for charged particle moving in EM field with in-place form.
+If the field is in 2D X-Y plane, periodic boundary should be applied for the field in z via
+the extrapolation function.
+"""
+trace_normalized!(dy, y, p, t) = _store!(dy, _trace_normalized_rhs(y, p, t)...)
+
+"""
+    trace_normalized(y, p, t)
+
+Normalized ODE equations for charged particle moving in EM field with out-of-place form.
+"""
+trace_normalized(y, p, t) = vcat(_trace_normalized_rhs(y, p, t)...)
+
+"""
+    trace_relativistic_normalized!(dy, y, p, t)
+
+Normalized ODE equations for relativistic charged particle (x, γv) moving in EM field with in-place form.
+"""
+trace_relativistic_normalized!(dy, y, p, t) =
+    _store!(dy, _trace_relativistic_normalized_rhs(y, p, t)...)
+
+"""
+    trace_relativistic_normalized(y, p, t)
+
+Normalized ODE equations for relativistic charged particle (x, γv) moving in EM field with out-of-place form.
+"""
+trace_relativistic_normalized(y, p, t) = vcat(_trace_relativistic_normalized_rhs(y, p, t)...)
+
+"""
+    _lorentz_factor(u, f)
+
+Lorentz factor of the velocity part `u` of a state traced with the equations `f`,
+which store `γv` in place of `v` for the relativistic equations.
+"""
+_lorentz_factor(u, f) = one(eltype(u))
+_lorentz_factor(γv, ::Union{typeof(trace_relativistic!), typeof(trace_relativistic)}) =
+    sqrt(1 + (γv ⋅ γv) / c^2)
+_lorentz_factor(
+    γv,
+    ::Union{typeof(trace_relativistic_normalized!), typeof(trace_relativistic_normalized)}
+) = sqrt(1 + γv ⋅ γv)
 
 """
     trace_gc_exb!(dx, x, p, t)
@@ -170,99 +217,6 @@ function vector_laplacian(f, x::SVector{3})
     H = ForwardDiff.jacobian(y -> vec(ForwardDiff.jacobian(f, y)), x)
     return SVector(ntuple(i -> H[i, 1] + H[3 + i, 2] + H[6 + i, 3], 3))
 end
-
-"""
-    trace_relativistic(y, p, t) -> SVector{6}
-
-ODE equations for relativistic charged particle (x, γv) moving in static EM field with out-of-place form.
-"""
-function trace_relativistic(y, p, t)
-    γv = get_v(y)
-    v = get_relativistic_v(γv)
-    dv = get_dv(v, y, p, t)
-
-    return vcat(v, dv)
-end
-
-"""
-    trace_normalized!(dy, y, p, t)
-
-Normalized ODE equations for charged particle moving in EM field with in-place form.
-If the field is in 2D X-Y plane, periodic boundary should be applied for the field in z via
-the extrapolation function.
-"""
-function trace_normalized!(dy, y, p, t)
-    v = get_v(y)
-    E = p.E(y, t)
-    B = p.B(y, t)
-
-    @inbounds dy[1:3] = v
-    @inbounds dy[4:6] = v × B + E
-
-    return
-end
-
-"""
-    trace_normalized(y, p, t)
-
-Normalized ODE equations for charged particle moving in EM field with out-of-place form.
-"""
-function trace_normalized(y, p, t)
-    v = get_v(y)
-    E = p.E(y, t)
-    B = p.B(y, t)
-    dv = v × B + E
-
-    return vcat(v, dv)
-end
-
-"""
-    _lorentz_factor(u, f)
-
-Lorentz factor of the velocity part `u` of a state traced with the equations `f`,
-which store `γv` in place of `v` for the relativistic equations.
-"""
-_lorentz_factor(u, f) = one(eltype(u))
-_lorentz_factor(γv, ::Union{typeof(trace_relativistic!), typeof(trace_relativistic)}) =
-    sqrt(1 + (γv ⋅ γv) / c^2)
-
-"""
-    trace_relativistic_normalized!(dy, y, p, t)
-
-Normalized ODE equations for relativistic charged particle (x, γv) moving in EM field with in-place form.
-"""
-function trace_relativistic_normalized!(dy, y, p, t)
-    E = p.E(y, t)
-    B = p.B(y, t)
-    γv = get_v(y)
-
-    v = get_relativistic_v(γv; c = 1)
-    @inbounds dy[1:3] = v
-    @inbounds dy[4:6] = v × B + E
-
-    return
-end
-
-"""
-    trace_relativistic_normalized(y, p, t)
-
-Normalized ODE equations for relativistic charged particle (x, γv) moving in EM field with out-of-place form.
-"""
-function trace_relativistic_normalized(y, p, t)
-    E = p.E(y, t)
-    B = p.B(y, t)
-    γv = get_v(y)
-
-    v = get_relativistic_v(γv; c = 1)
-    dv = v × B + E
-
-    return vcat(v, dv)
-end
-
-_lorentz_factor(
-    γv,
-    ::Union{typeof(trace_relativistic_normalized!), typeof(trace_relativistic_normalized)}
-) = sqrt(1 + γv ⋅ γv)
 
 """
     get_B_parameters(x, t, Bfunc)
@@ -537,83 +491,24 @@ function get_work_channels(xv, p, t)
     return SVector{3}(P_par, P_fermi, P_grad + P_betatron)
 end
 
-function trace_canonical!(dy, y, p, t)
+@inline _vector_potential(pf, x, t) = pf.A isa ZeroField ? zero(x) : SVector{3}(pf.A(x, t))
+
+@inline _kinetic_to_velocity(p_kin, m, c, relativistic::Bool) =
+    relativistic ? p_kin / (m * √(1 + (p_kin ⋅ p_kin) / (m * c)^2)) : p_kin / m
+
+@inline function _canonical_rhs(y, p, t, relativistic::Bool)
     (; q, m, pf) = p
-    x = @inbounds SA[y[1], y[2], y[3]]
-    p_can = @inbounds SA[y[4], y[5], y[6]]
-
-    A = pf.A isa ZeroField ? zero(x) : SVector{3}(pf.A(x, t))
-    v = (p_can - q * A) / m
-
+    x = get_x(y)
+    c = relativistic ? p.c : nothing
+    v = _kinetic_to_velocity(get_v(y) - q * _vector_potential(pf, x, t), m, c, relativistic)
     grad_phi = pf.grad_phi isa ZeroField ? zero(x) : SVector{3}(pf.grad_phi(x, t))
-    grad_A = pf.grad_A(x, t)
-
-    dp = q * (grad_A * v) - q * grad_phi
-
-    @inbounds dy[1] = v[1]
-    @inbounds dy[2] = v[2]
-    @inbounds dy[3] = v[3]
-    @inbounds dy[4] = dp[1]
-    @inbounds dy[5] = dp[2]
-    @inbounds dy[6] = dp[3]
-    return
+    return v, q * (pf.grad_A(x, t) * v) - q * grad_phi
 end
 
-function trace_canonical(y, p, t)
-    (; q, m, pf) = p
-    x = @inbounds SA[y[1], y[2], y[3]]
-    p_can = @inbounds SA[y[4], y[5], y[6]]
-
-    A = pf.A isa ZeroField ? zero(x) : SVector{3}(pf.A(x, t))
-    v = (p_can - q * A) / m
-
-    grad_phi = pf.grad_phi isa ZeroField ? zero(x) : SVector{3}(pf.grad_phi(x, t))
-    grad_A = pf.grad_A(x, t)
-
-    dp = q * (grad_A * v) - q * grad_phi
-    return vcat(v, dp)
-end
-
-function trace_canonical_relativistic!(dy, y, p, t)
-    (; q, m, c, pf) = p
-    x = @inbounds SA[y[1], y[2], y[3]]
-    p_can = @inbounds SA[y[4], y[5], y[6]]
-
-    A = pf.A isa ZeroField ? zero(x) : SVector{3}(pf.A(x, t))
-    p_kin = p_can - q * A
-    γ = √(1 + sum(p_kin .^ 2) / (m^2 * c^2))
-    v = p_kin / (γ * m)
-
-    grad_phi = pf.grad_phi isa ZeroField ? zero(x) : SVector{3}(pf.grad_phi(x, t))
-    grad_A = pf.grad_A(x, t)
-
-    dp = q * (grad_A * v) - q * grad_phi
-
-    @inbounds dy[1] = v[1]
-    @inbounds dy[2] = v[2]
-    @inbounds dy[3] = v[3]
-    @inbounds dy[4] = dp[1]
-    @inbounds dy[5] = dp[2]
-    @inbounds dy[6] = dp[3]
-    return
-end
-
-function trace_canonical_relativistic(y, p, t)
-    (; q, m, c, pf) = p
-    x = @inbounds SA[y[1], y[2], y[3]]
-    p_can = @inbounds SA[y[4], y[5], y[6]]
-
-    A = pf.A isa ZeroField ? zero(x) : SVector{3}(pf.A(x, t))
-    p_kin = p_can - q * A
-    γ = √(1 + sum(p_kin .^ 2) / (m^2 * c^2))
-    v = p_kin / (γ * m)
-
-    grad_phi = pf.grad_phi isa ZeroField ? zero(x) : SVector{3}(pf.grad_phi(x, t))
-    grad_A = pf.grad_A(x, t)
-
-    dp = q * (grad_A * v) - q * grad_phi
-    return vcat(v, dp)
-end
+trace_canonical!(dy, y, p, t) = _store!(dy, _canonical_rhs(y, p, t, false)...)
+trace_canonical(y, p, t) = vcat(_canonical_rhs(y, p, t, false)...)
+trace_canonical_relativistic!(dy, y, p, t) = _store!(dy, _canonical_rhs(y, p, t, true)...)
+trace_canonical_relativistic(y, p, t) = vcat(_canonical_rhs(y, p, t, true)...)
 
 function velocity_to_canonical(
         x0::AbstractVector, v0::AbstractVector, p;
@@ -622,17 +517,8 @@ function velocity_to_canonical(
     (; q, m, c, pf) = p
     x_vec = SA[x0[1], x0[2], x0[3]]
     v_vec = SA[v0[1], v0[2], v0[3]]
-    A = pf.A isa ZeroField ? zero(x_vec) : SVector{3}(pf.A(x_vec, t))
-
-    p_can = if relativistic
-        v2 = sum(v_vec .^ 2)
-        γ = 1 / √(1 - v2 / c^2)
-        γ * m * v_vec + q * A
-    else
-        m * v_vec + q * A
-    end
-
-    return vcat(x_vec, p_can)
+    γ = relativistic ? 1 / √(1 - (v_vec ⋅ v_vec) / c^2) : 1
+    return vcat(x_vec, γ * m * v_vec + q * _vector_potential(pf, x_vec, t))
 end
 
 function canonical_to_velocity(
@@ -641,16 +527,8 @@ function canonical_to_velocity(
     )
     (; q, m, c, pf) = p
     x_vec = SA[x[1], x[2], x[3]]
-    p_vec = SA[p_can[1], p_can[2], p_can[3]]
-    A = pf.A isa ZeroField ? zero(x_vec) : SVector{3}(pf.A(x_vec, t))
-    p_kin = p_vec - q * A
-
-    if relativistic
-        γ = √(1 + sum(p_kin .^ 2) / (m^2 * c^2))
-        return p_kin / (γ * m)
-    else
-        return p_kin / m
-    end
+    p_kin = SA[p_can[1], p_can[2], p_can[3]] - q * _vector_potential(pf, x_vec, t)
+    return _kinetic_to_velocity(p_kin, m, c, relativistic)
 end
 
 function canonical_to_velocity(u::AbstractVector, p; relativistic::Bool = false, t = 0.0)
@@ -659,16 +537,14 @@ end
 
 function canonical_hamiltonian(u::AbstractVector, p, t = 0.0; relativistic::Bool = false)
     (; q, m, c, pf) = p
-    x = SA[u[1], u[2], u[3]]
-    p_can = SA[u[4], u[5], u[6]]
-
-    A = pf.A isa ZeroField ? zero(x) : SVector{3}(pf.A(x, t))
+    x = get_x(u)
     phi = pf.phi isa ZeroField ? zero(eltype(x)) : pf.phi(x, t)
-    p_kin = p_can - q * A
+    p_kin = get_v(u) - q * _vector_potential(pf, x, t)
+    p² = p_kin ⋅ p_kin
 
     if relativistic
-        return √(m^2 * c^4 + c^2 * sum(p_kin .^ 2)) + q * phi
+        return √(m^2 * c^4 + c^2 * p²) + q * phi
     else
-        return sum(p_kin .^ 2) / (2 * m) + q * phi
+        return p² / (2 * m) + q * phi
     end
 end
