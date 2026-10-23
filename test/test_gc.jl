@@ -182,6 +182,31 @@ E_const(x, t) = SA[1.0e-9, 0.0, 0.0]
             sol_rk4 = solve(prob; dt = 1.0e-4, alg = :rk4)
             diff = norm(sol_tight.u[1].u[end] - sol_rk4.u[1].u[end])
             @test diff < 10.0
+
+            # Tracing back from the end of the forward run recovers the start.
+            sol_fwd = solve(prob; alg = :rk45, abstol = 1.0e-10, reltol = 1.0e-10).u[1]
+            prob_bwd = TraceGCProblem(sol_fwd.u[end], reverse(tspan), param_gc)
+            sol_bwd = solve(
+                prob_bwd; alg = :rk45, abstol = 1.0e-10, reltol = 1.0e-10
+            ).u[1]
+            @test sol_bwd.retcode == ReturnCode.Success
+            @test sol_bwd.t[end] == tspan[1]
+            @test issorted(sol_bwd.t; rev = true)
+            @test sol_bwd.u[end] ≈ stateinit_gc rtol = 1.0e-6
+
+            sol_short = solve(prob; dt = 1.0e-4, alg = :rk45, maxiters = 5).u[1]
+            @test sol_short.retcode == ReturnCode.MaxIters
+            @test sol_short.t[end] < tspan[2]
+        end
+
+        @testset "RK45 step size underflow" begin
+            # The field turns invalid above z = 1, so every step across it is
+            # rejected until the step size collapses before reaching the end.
+            B_wall(x) = x[3] > 1 ? SA[NaN, NaN, NaN] : SA[0.0, 0.0, 1.0e-8]
+            gc0, p_wall = prepare_gc([0.0, 0, 0, 0, 0, 1.0], TP.ZeroField(), B_wall)
+            sol = solve(TraceGCProblem(gc0, (0.0, 10.0), p_wall); alg = :rk45).u[1]
+            @test sol.retcode == ReturnCode.DtLessThanMin
+            @test sol.t[end] < 10.0
         end
 
         @testset "Comparison with DiffEq" begin

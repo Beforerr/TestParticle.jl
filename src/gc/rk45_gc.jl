@@ -56,6 +56,7 @@ function _rk45!(
     ) where {SaveFields, SaveWork}
     (; tspan, p, u0) = prob
     T = eltype(u0)
+    dir = plan.dir
 
     safety = 0.9
     max_growth = 5.0
@@ -94,6 +95,7 @@ function _rk45!(
         else
             dt = dt_initial
         end
+        dt = dir * abs(dt)
 
         if save_start
             push!(traj, _prepare_saved_data_gc(xv, p, t, Val(SaveFields), Val(SaveWork)))
@@ -104,8 +106,12 @@ function _rk45!(
         nsave = length(plan.times)
         isave = 1
         retcode = ReturnCode.Success
-        while t < tspan[2] && steps < maxiters
-            if t + dt > tspan[2]
+        while dir * (tspan[2] - t) > 0
+            if steps >= maxiters
+                retcode = ReturnCode.MaxIters
+                break
+            end
+            if dir * (t + dt - tspan[2]) > 0
                 dt = tspan[2] - t
             end
 
@@ -176,7 +182,10 @@ function _rk45!(
             scale = max(min_growth, min(scale, max_growth))
             dt *= scale
 
-            dt < 1.0e-14 && break
+            if dir * (tspan[2] - t) > 0 && abs(dt) < 1.0e-14
+                retcode = ReturnCode.DtLessThanMin
+                break
+            end
         end
 
         if save_end && (isempty(tsave) || tsave[end] != t)
