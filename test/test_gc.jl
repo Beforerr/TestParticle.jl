@@ -46,11 +46,11 @@ E_const(x, t) = SA[1.0e-9, 0.0, 0.0]
         xu_7 = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0]
         gc_7 = get_gc(xu_7, param_t)
 
-        # Case 2: 6-element vector (x, y, z, vx, vy, vz)
-        # t should default to 0.0 -> B = 1.0
-        # If bug exists, t would be taken as vz = 2.0 -> B = 3.0
+        # Case 2: 6-element vector (x, y, z, vx, vy, vz) has no time, so a time-dependent
+        # field needs it explicitly. t = 0.0 -> B = 1.0
         xu_6 = [0.0, 0.0, 0.0, 1.0, 0.0, 2.0]
-        gc_6 = get_gc(xu_6, param_t)
+        @test_throws ArgumentError get_gc(xu_6, param_t)
+        gc_6 = get_gc(xu_6, param_t, 0.0)
 
         # The shift of the guiding center is the Larmor radius, which goes as
         # 1/B, so the two cases have to differ by B_7 / B_6 = 2.

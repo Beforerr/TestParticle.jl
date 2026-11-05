@@ -196,11 +196,15 @@ function _gc_to_full(state_gc, E_field, B_field, q, m, μ, t, phase = 0)
 end
 
 """
+    get_gc(xu, param, t; use_vE = false)
     get_gc(xu, param; use_vE = false)
     get_gc(x, y, z, vx, vy, vz, bx, by, bz, q2m)
 
 Calculate the coordinates of the guiding center according to the phase space coordinates of a particle.
 Reference: [wiki](https://en.wikipedia.org/wiki/Guiding_center)
+
+Without `t`, the time is the last entry of a 7-element `xu = [x..., v..., t]`; a 6-element
+`xu` is accepted only for static fields.
 
 Nonrelativistic definition:
 
@@ -217,10 +221,17 @@ If `use_vE=true`, it calculates the guiding center relative to the E × B drift 
 which is essential for correctly identifying the polarization drift in time-varying fields.
 """
 function get_gc(xu, param; use_vE::Bool = false)
+    length(xu) == 7 && return get_gc(xu, param, xu[end]; use_vE)
+    (is_time_dependent(param.E) || is_time_dependent(param.B)) && throw(
+        ArgumentError("Time-dependent fields require get_gc(xu, param, t).")
+    )
+    return get_gc(xu, param, zero(eltype(xu)); use_vE)
+end
+
+function get_gc(xu, param, t; use_vE::Bool = false)
     # TODO: support external forces
     q2m = param.q2m
     B_field = param.B
-    t = length(xu) == 7 ? xu[end] : zero(eltype(xu))
     v = xu[SA[4:6...]]
     B = B_field(xu, t)
     B² = B[1]^2 + B[2]^2 + B[3]^2
