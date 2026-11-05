@@ -1,24 +1,15 @@
 # TraceProblem constructors and SciML interface integration
 
-const FO_PARAMS = (:q2m, :m, :E, :B, :F)
-const GC_PARAMS = (:q, :q2m, :μ, :E, :B)
-const CANONICAL_PARAMS = (:q, :m, :c, :pf)
-
 @inline ODE_DEFAULT_ISOUTOFDOMAIN(u, p, t) = false
 
 """
-    _named_params(p, names)
+    _named_params(p)
 
-Name the slots of a positional parameter tuple `p` after `names`, so that tuples
-written in the documented layout keep working. Other containers pass through.
+Name the slots of positional full-orbit parameters `(q2m, m, E, B, F)`. Other containers
+pass through.
 """
-function _named_params(p::NTuple{N, Any}, names) where {N}
-    N <= length(names) || throw(
-        ArgumentError("expected at most $(length(names)) parameters $names, got $N")
-    )
-    return NamedTuple{ntuple(i -> names[i], Val(N))}(p)
-end
-_named_params(p, names) = p
+_named_params(p::NTuple{5, Any}) = NamedTuple{(:q2m, :m, :E, :B, :F)}(p)
+_named_params(p) = p
 
 # Only the particle constants follow the state's float type; other entries of `p`, such as
 # user data, keep theirs.
@@ -29,8 +20,8 @@ const PARTICLE_CONSTANTS = (:q, :q2m, :m, :c, :μ)
 )
 @inline _promote_p(::Type{T}, p) where {T} = p
 
-@inline function _promote_trace_args(u0, tspan, p, names)
-    p = _named_params(p, names)
+@inline function _promote_trace_args(u0, tspan, p)
+    p = _named_params(p)
     T = eltype(u0)
     if T <: AbstractFloat
         tspan_T = (T(tspan[1]), T(tspan[2]))
@@ -41,26 +32,59 @@ const PARTICLE_CONSTANTS = (:q, :q2m, :m, :c, :μ)
     end
 end
 
-# Default equations of each model: `(in-place, out-of-place)` pairs, the non-relativistic
-# first and the relativistic, if any, second.
-_equations(::Type{FullOrbit}) = ((trace!, trace), (trace_relativistic!, trace_relativistic))
-_equations(::Type{Canonical}) = (
-    (trace_canonical!, trace_canonical),
-    (trace_canonical_relativistic!, trace_canonical_relativistic),
+# Default `(in-place, out-of-place)` equations of each model.
+_equations(::Type{FullOrbit}) = (trace!, trace)
+_equations(::Type{RelativisticOrbit}) = (trace_relativistic!, trace_relativistic)
+_equations(::Type{Canonical}) = (trace_canonical!, trace_canonical)
+_equations(::Type{RelativisticCanonical}) =
+    (trace_canonical_relativistic!, trace_canonical_relativistic)
+_equations(::Type{GuidingCenter}) = (trace_gc!, trace_gc)
+
+_relativistic(::Type{FullOrbit}) = RelativisticOrbit
+_relativistic(::Type{Canonical}) = RelativisticCanonical
+_relativistic(::Type{M}) where {M} =
+    throw(ArgumentError("$M has no relativistic equations."))
+
+_default_f(::Type{M}, isinplace) where {M} = ODEFunction{isinplace, DEFAULT_SPECIALIZATION}(
+    _equations(M)[isinplace ? 1 : 2]
 )
-_equations(::Type{GuidingCenter}) = ((trace_gc!, trace_gc),)
 
-_param_names(::Type{FullOrbit}) = FO_PARAMS
-_param_names(::Type{Canonical}) = CANONICAL_PARAMS
-_param_names(::Type{GuidingCenter}) = GC_PARAMS
+_is_default_f(::Type{M}, f) where {M} = SciMLBase.unwrapped_f(f.f) in _equations(M)
 
-function _default_f(::Type{M}, isinplace, relativistic) where {M}
-    variants = _equations(M)
-    relativistic && length(variants) < 2 &&
-        throw(ArgumentError("$M has no relativistic equations."))
-    f = variants[relativistic + 1][isinplace ? 1 : 2]
-    return ODEFunction{isinplace, DEFAULT_SPECIALIZATION}(f)
-end
+# Passing relativistic equations as `f` selects their model.
+_resolve_model(::Type{M}, f) where {M} = M
+_resolve_model(::Type{FullOrbit}, f::Union{typeof(trace_relativistic!), typeof(trace_relativistic)}) =
+    RelativisticOrbit
+_resolve_model(
+    ::Type{Canonical},
+    f::Union{typeof(trace_canonical_relativistic!), typeof(trace_canonical_relativistic)}
+) = RelativisticCanonical
+
+"""
+    _param_model(p)
+
+Model that the parameters `p` of a bare state are written for: the state-level diagnostics'
+default where no problem names the model.
+"""
+@inline _param_model(p) = hasproperty(p, :μ) ? GuidingCenter() :
+    hasproperty(p, :pf) ? Canonical() : FullOrbit()
+
+_rhs_model(f, p) = _param_model(p)
+_rhs_model(::Union{typeof(trace_relativistic!), typeof(trace_relativistic)}, p) =
+    RelativisticOrbit()
+_rhs_model(
+    ::Union{typeof(trace_canonical_relativistic!), typeof(trace_canonical_relativistic)}, p
+) = RelativisticCanonical()
+
+"""
+    _model(prob)
+
+Model of `prob`. A plain `ODEProblem` has none of its own, so it follows from the equations
+and the parameters.
+"""
+_model(::TraceProblem{M}) where {M} = M()
+_model(prob) = hasproperty(prob.f, :f) ?
+    _rhs_model(SciMLBase.unwrapped_f(prob.f.f), prob.p) : _param_model(prob.p)
 
 """
     TraceProblem(u0, tspan, p; relativistic = false, prob_func = DEFAULT_PROB_FUNC)
@@ -68,13 +92,14 @@ end
     TraceProblem{M}(...)
 
 Problem specification for particle tracing in the model `M`: `FullOrbit` (the default),
-`Canonical` or `GuidingCenter`, also written `TraceCanonicalProblem` and
-`TraceGCProblem`. Supports the native solvers of each model and standard ODE solvers
-(e.g. Tsit5, Vern7).
+`RelativisticOrbit`, `Canonical`, `RelativisticCanonical` or `GuidingCenter`, also written
+`TraceCanonicalProblem` and `TraceGCProblem`. Supports the native solvers of each model and
+standard ODE solvers (e.g. Tsit5, Vern7).
 
 When `f` is not provided, the model's equations are used: in-place for mutable arrays,
-out-of-place for `StaticArray`s, and relativistic with `relativistic = true`, in which
-case `u0` holds `γv` in place of `v`. Boris solvers are non-relativistic.
+out-of-place for `StaticArray`s. `relativistic = true` selects the relativistic variant of
+the model, in which case a full-orbit `u0` holds `γv` in place of `v`. Boris solvers accept
+only the default `FullOrbit` equations without an external force.
 
 Normalized units need no separate equations: prepare `p` with `q = 1, m = 1`, and
 `c = 1` for the relativistic case.
@@ -84,8 +109,8 @@ TraceProblem(args...; kw...) = TraceProblem{FullOrbit}(args...; kw...)
 function TraceProblem{M}(
         u0, tspan, p; relativistic::Bool = false, prob_func = DEFAULT_PROB_FUNC
     ) where {M}
-    f = _default_f(M, !(u0 isa StaticArray), relativistic)
-    return TraceProblem{M}(f, u0, tspan, p; prob_func)
+    N = relativistic ? _relativistic(M) : M
+    return TraceProblem{N}(_default_f(N, !(u0 isa StaticArray)), u0, tspan, p; prob_func)
 end
 
 function TraceProblem{M}(f, u0, tspan, p; prob_func = DEFAULT_PROB_FUNC) where {M}
@@ -96,9 +121,10 @@ end
 function TraceProblem{M}(
         f::AbstractODEFunction{iip}, u0, tspan, p; prob_func = DEFAULT_PROB_FUNC
     ) where {M, iip}
-    tspan, p = _promote_trace_args(u0, tspan, p, _param_names(M))
+    tspan, p = _promote_trace_args(u0, tspan, p)
+    N = _resolve_model(M, SciMLBase.unwrapped_f(f.f))
     return TraceProblem{
-        M, typeof(u0), typeof(tspan), iip, typeof(p), typeof(f), typeof(prob_func),
+        N, typeof(u0), typeof(tspan), iip, typeof(p), typeof(f), typeof(prob_func),
     }(f, u0, tspan, p, prob_func)
 end
 
@@ -107,9 +133,8 @@ function SciMLBase.remake(
         prob_func = prob.prob_func, kwargs...
     ) where {M}
     # Default equations follow `u0` between mutable and static arrays.
-    if f === prob.f
-        i = findfirst(fs -> prob.f.f in fs, _equations(M))
-        isnothing(i) || (f = _default_f(M, !(u0 isa StaticArray), i == 2))
+    if f === prob.f && _is_default_f(M, prob.f)
+        f = _default_f(M, !(u0 isa StaticArray))
     end
     return TraceProblem{M}(f, u0, tspan, p; prob_func)
 end

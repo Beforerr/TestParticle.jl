@@ -80,45 +80,44 @@ function get_adiabaticity(r, Bfunc, μ, t::Number = 0.0; species = Proton)
     return get_adiabaticity(r, Bfunc, species.q, species.m, μ, t)
 end
 
-function get_adiabaticity(xv, p::NamedTuple, t)
-    if hasproperty(p, :μ)
-        (; q, q2m, μ) = p
-        return get_adiabaticity(xv[SA[1, 2, 3]], p.B, q, q / q2m, μ, t)
-    else
-        (; q2m, m) = p
-        Bfunc = p.B
-        q = q2m * m
+get_adiabaticity(xv, p::NamedTuple, t) = _adiabaticity(_param_model(p), xv, p, t)
 
-        x = xv[SA[1, 2, 3]]
-        v = xv[SA[4, 5, 6]]
+function _adiabaticity(::GuidingCenter, y, p, t)
+    (; q, q2m, μ) = p
+    return get_adiabaticity(get_x(y), p.B, q, q / q2m, μ, t)
+end
 
-        B = Bfunc(x, t)
-        Bmag = norm(B)
-        b̂ = B / Bmag
-        vpar_val = v ⋅ b̂
-        vperp_vec = v - vpar_val * b̂
-        μ = m * (vperp_vec ⋅ vperp_vec) / (2 * Bmag)
+_adiabaticity(::FullOrbit, xv, p, t) =
+    _full_orbit_adiabaticity(get_x(xv), get_v(xv), p.m, p, t)
 
-        return get_adiabaticity(x, Bfunc, q, m, μ, t)
-    end
+function _adiabaticity(model::RelativisticOrbit, xv, p, t)
+    γv = get_v(xv)
+    γ = _lorentz_factor(γv, model, p)
+    return _full_orbit_adiabaticity(get_x(xv), γv / γ, γ * p.m, p, t)
+end
+
+_adiabaticity(model, xv, p, t) =
+    throw(ArgumentError("get_adiabaticity is not defined for $model."))
+
+# The guiding center and the gyration velocity define `μ`, as the hybrid solver does.
+function _full_orbit_adiabaticity(x, v, m, p, t)
+    iszero(norm(p.B(x, t))) && return Inf
+    q = p.q2m * p.m
+    xv = vcat(x, v)
+    X, μ = _gc_adia_parameters(xv, p.E, p.B, q, m, t)
+    return get_adiabaticity(X, p.B, q, m, μ, t)
 end
 
 """
     get_adiabaticity(sol::AbstractODESolution)
 
 Calculate the adiabaticity parameter `ϵ` from a solution `sol` at all time steps.
-The parameters `q`, `m`, `Bfunc` are extracted from `sol.prob.p`.
+The model, parameters `q`, `m` and `Bfunc` are extracted from `sol.prob`.
 """
 function get_adiabaticity(sol::AbstractODESolution)
-    n = length(sol.t)
-    ε = Vector{Float64}(undef, n)
     p = sol.prob.p
-
-    @inbounds for i in 1:n
-        ε[i] = get_adiabaticity(sol.u[i], p, sol.t[i])
-    end
-
-    return ε
+    model = _model(sol.prob)
+    return Float64[_adiabaticity(model, u, p, t) for (u, t) in zip(sol.u, sol.t)]
 end
 
 """
@@ -128,7 +127,7 @@ Calculate the adiabaticity parameter `ϵ` from a solution `sol` at time `t`.
 `t` must be a scalar.
 """
 function get_adiabaticity(sol::AbstractODESolution, t)
-    return get_adiabaticity(sol(t), sol.prob.p, t)
+    return _adiabaticity(_model(sol.prob), sol(t), sol.prob.p, t)
 end
 
 """

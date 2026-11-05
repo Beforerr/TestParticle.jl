@@ -50,6 +50,53 @@ function interpolation_construction_allocations(B, x, order, store)
     return @allocated build_interpolator(B, x, x, x, order; store)
 end
 
+@testset "Diagnostics follow the model" begin
+    B_z(x) = SA[0.0, 0.0, 1.0e-8]
+    v = [0.0, 1.0e5, 1.0e4]
+    u0 = [0.0, 0.0, 0.0, v...]
+    electron = prepare(; species = Electron, B = B_z)
+    sol = solve(TraceProblem(u0, (0.0, 1.0e-9), electron), Tsit5())
+    @test TP.get_energy(sol)[1] ≈ TP.mₑ * sum(abs2, v) / (2 * TP.qᵢ)
+    @test TP.get_velocity(sol)[:, 1] ≈ v
+
+    γv = [0.0, 0.0, 0.0, 2 * TP.c, 0.0, 0.0]
+    rel = TraceProblem(γv, (0.0, 1.0e-9), electron; relativistic = true)
+    @test rel isa TP.TraceProblem{TP.RelativisticOrbit}
+    @test remake(rel; u0 = SVector{6}(γv)) isa TP.TraceProblem{TP.RelativisticOrbit}
+    @test TP.TraceProblem(trace_relativistic!, γv, (0.0, 1.0), electron) isa
+        TP.TraceProblem{TP.RelativisticOrbit}
+    sol_rel = solve(rel, Tsit5())
+    @test TP.get_velocity(sol_rel)[1, 1] ≈ 2 * TP.c / √5
+    @test TP.get_energy(sol_rel)[1] ≈ (√5 - 1) * TP.mₑ * TP.c^2 / TP.qᵢ
+
+    @test TP.get_gyroperiod(1.0e-8; q = TP.qₑ, m = TP.mₑ) > 0
+    @test TP.get_gyroradius(1.0e6, 1.0e-8; q = TP.qₑ, m = TP.mₑ) > 0
+
+    # Relativistic equations do not guess the units of a custom particle.
+    norm_p = prepare(; q = 1, m = 1, B = B_z)
+    @test isnothing(norm_p.c)
+    @test_throws ArgumentError trace_relativistic(SVector{6}(u0), norm_p, 0.0)
+    @test prepare(; B = B_z).c == TP.c
+    @test prepare(; q = 1, m = 1, c = 1, B = B_z).c == 1
+
+    @test_throws MethodError prepare(PotentialField(; phi = x -> 0.0); speceis = Electron)
+
+    p_can = prepare_canonical(; A = x -> SA[0.0, 0.0, 0.0])
+    sol_can = solve(TraceCanonicalProblem(SVector{6}(u0), (0.0, 1.0), p_can), Tsit5())
+    for f in (get_fields, get_work_rates, TP.get_adiabaticity, TP.get_energy, TP.get_velocity)
+        @test_throws ArgumentError f(sol_can)
+    end
+    @test_throws ArgumentError TP.get_gyroradius(sol_can, 0.5)
+
+    # `μ` is that of the gyration around the guiding center, as for the hybrid switch.
+    B_y(x) = SA[0.0, 1.0e-8 * x[3] / 1.0e6, 1.0e-8]
+    p_E = prepare(; E = x -> SA[1.0e-3, 0.0, 0.0], B = B_y)
+    xv = SA[0.0, 0.0, 1.0e5, 0.0, 1.0e5, 1.0e5]
+    X, μ = TP._gc_adia_parameters(xv, p_E.E, p_E.B, p_E.q, p_E.m, 0.0)
+    @test TP.get_adiabaticity(xv, p_E, 0.0) ≈
+        TP.adiabaticity_components(X, p_E.B, p_E.q, p_E.m, μ, 0.0)[1]
+end
+
 @testset "Utility" begin
     @testset "Basic Utility" begin
         V, B = 440.0e3, 5.0e-9

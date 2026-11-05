@@ -15,8 +15,6 @@ end
         :TraceProblem, :TraceCanonicalProblem, :TraceGCProblem, :TraceHybridProblem,
         :solve, :remake,
         :trace, :trace!, :trace_relativistic, :trace_relativistic!,
-        :trace_normalized, :trace_normalized!,
-        :trace_relativistic_normalized, :trace_relativistic_normalized!,
         :trace_canonical, :trace_canonical!,
         :trace_canonical_relativistic, :trace_canonical_relativistic!,
         :trace_gc!, :trace_gc_drifts!, :trace_gc_flr!, :trace_gc_exb!,
@@ -30,7 +28,7 @@ end
     public_only = (
         :ReturnCode, :Field, :ErasedField, :ErasedFunction, :Species, :SpeciesDict,
         :ZeroField, :ZeroVector,
-        :FullOrbit, :Canonical, :GuidingCenter,
+        :FullOrbit, :RelativisticOrbit, :Canonical, :RelativisticCanonical, :GuidingCenter,
         :CartesianGrid, :RectilinearGrid, :StructuredGrid,
         :qₑ, :mₑ, :qᵢ, :mᵢ, :c, :μ₀, :ϵ₀, :kB, :Rₑ, :BMoment_Earth, :eV,
         :get_gc, :get_gc_velocity,

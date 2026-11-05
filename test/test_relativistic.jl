@@ -40,7 +40,7 @@ end
     Δx = x[1] - x0[1] + x[2] - x0[2]
     KE_end = get_energy(sol[4:6, end]; m = TP.mₑ, q = TP.qₑ)
     @test isapprox(KE_end / Δx, 1.0e5, rtol = 1.0e-2)
-    KE_all = get_energy(sol; m = TP.mₑ, q = TP.qₑ)
+    KE_all = get_energy(sol)
     @test isapprox(KE_all[end] / Δx, 1.0e5, rtol = 1.0e-2)
     # Convert to velocity
     @test isapprox(get_velocity(sol)[1, end], -1.6588724708347203e7, rtol = 1.0e-2)
