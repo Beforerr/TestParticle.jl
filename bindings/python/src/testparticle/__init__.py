@@ -57,7 +57,7 @@ def _jl_symbol(name):
 # list of 2D arrays with shape ``(n_steps, n_vars)``.
 jl.seval(
     """
-    function _tp_extract(sols)
+    function _tp_extract(sols, save_fields = false, save_work = false)
         sol_list = sols isa TestParticle.EnsembleSolution ? sols.u :
             sols isa TestParticle.AbstractODESolution ? (sols,) : sols
         n = length(sol_list)
@@ -67,6 +67,11 @@ jl.seval(
             s = sol_list[i]
             t = collect(Float64, s.t)
             u = reduce(hcat, [Float64.(uu) for uu in s.u])
+            if save_fields
+                E, B = TestParticle.get_fields(s)
+                u = vcat(u, reduce(hcat, E), reduce(hcat, B))
+            end
+            save_work && (u = vcat(u, reduce(hcat, TestParticle.get_work_rates(s))))
             us[i] = permutedims(u)
             ts[i] = t
         end
@@ -430,8 +435,6 @@ def trace(
     solve_kw = dict(
         dt=float(dt),
         trajectories=int(trajectories),
-        save_fields=bool(save_fields),
-        save_work=bool(save_work),
     )
     if saveat is not None:
         solve_kw["saveat"] = saveat
@@ -446,7 +449,7 @@ def trace(
     else:
         sols = TP.solve(prob, alg_jl, TP.EnsembleSerial(), **solve_kw)
 
-    ts, us = jl._tp_extract(sols)
+    ts, us = jl._tp_extract(sols, bool(save_fields), bool(save_work))
     ts_py = [np.asarray(t) for t in ts]
     us_py = [np.asarray(u) for u in us]
 
@@ -503,8 +506,6 @@ def trace_gc(
     solve_kw = dict(
         dt=float(dt),
         trajectories=int(trajectories),
-        save_fields=bool(save_fields),
-        save_work=bool(save_work),
     )
     if saveat is not None:
         solve_kw["saveat"] = saveat
@@ -515,7 +516,7 @@ def trace_gc(
         alg = gc_algs[alg]()
     sols = TP.solve(prob, alg, **solve_kw)
 
-    ts, us = jl._tp_extract(sols)
+    ts, us = jl._tp_extract(sols, bool(save_fields), bool(save_work))
     ts_py = [np.asarray(t) for t in ts]
     us_py = [np.asarray(u) for u in us]
 

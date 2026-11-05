@@ -243,11 +243,7 @@ E_const(x, t) = SA[1.0e-9, 0.0, 0.0]
             )
             prob_saving = TraceGCProblem(state_gc_0, tspan_saving, param_gc_ready)
 
-            # Solve with saving enabled
-            sol = solve(
-                prob_saving, GCRK4(); trajectories, dt = 1.0e-5, save_fields = true,
-                save_work = true
-            )
+            sol = solve(prob_saving, GCRK4(), EnsembleSerial(); trajectories, dt = 1.0e-5)
 
             for s in sol.u
                 E, B = get_fields(s)
@@ -292,14 +288,7 @@ E_const(x, t) = SA[1.0e-9, 0.0, 0.0]
             # from it since the ends are reported separately.
             sol_interval = solve(prob, GCRK4(); dt, saveat = 0.25).u[1]
             @test sol_interval.t ≈ collect(0.0:0.25:1.0)
-
-            # The field and work columns are appended on this path too.
-            sol_fields = solve(
-                prob, GCRK4();
-                dt, saveat = ts, save_fields = true
-            ).u[1]
-            @test length(sol_fields.u[1]) == 10
-            @test get_fields(sol_fields) isa Tuple
+            @test get_fields(sol_interval) isa Tuple
         end
     end
 end

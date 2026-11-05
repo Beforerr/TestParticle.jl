@@ -25,7 +25,7 @@ const GCAlgorithm = Union{GCRK4, GCRK45}
     solve(prob::TraceGCProblem, alg::Union{GCRK4, GCRK45}, ensemblealg = EnsembleSerial();
         trajectories = 1, dt = nothing, saveat = (), isoutside = ODE_DEFAULT_ISOUTOFDOMAIN,
         save_start = true, save_end = true, save_everystep = true, maxiters = 10000,
-        save_fields = false, save_work = false, seed = nothing)
+        seed = nothing)
 
 Trace guiding centers with a native solver.
 
@@ -41,17 +41,14 @@ function solve(
         dt::Union{AbstractFloat, Nothing} = nothing,
         isoutside::F = ODE_DEFAULT_ISOUTOFDOMAIN,
         save_start::Bool = true, save_end::Bool = true, save_everystep::Bool = true,
-        maxiters = 10000, save_fields::Bool = false, save_work::Bool = false,
+        maxiters = 10000,
         seed::Union{Nothing, Integer} = nothing
     ) where {F}
     plan = SavingPlan(saveat, prob.tspan, _gc_direction(prob), _gc_time_type(prob, dt))
 
-    # Ternaries give `Union{Val{true}, Val{false}}`, which inference splits into static
-    # calls; `Val(::Bool)` would dispatch dynamically and allocate on every solve.
     return _solve(
         ensemblealg, prob, trajectories, dt, plan, isoutside,
-        save_start, save_end, save_everystep, alg, maxiters,
-        save_fields ? Val(true) : Val(false), save_work ? Val(true) : Val(false), seed
+        save_start, save_end, save_everystep, alg, maxiters, seed
     )
 end
 
@@ -76,25 +73,23 @@ end
 function _solve(
         ensemblealg::Union{EnsembleSerial, EnsembleThreads}, prob::TraceGCProblem,
         trajectories, dt, plan, isoutside::F, save_start, save_end, save_everystep, alg,
-        maxiters, ::Val{SaveFields}, ::Val{SaveWork}, seed
-    ) where {F, SaveFields, SaveWork}
+        maxiters, seed
+    ) where {F}
     sols, nt, nout = _prepare_gc(
         prob, trajectories, dt, plan,
-        save_start, save_end, save_everystep, alg, maxiters, Val(SaveFields), Val(SaveWork)
+        save_start, save_end, save_everystep, alg, maxiters
     )
 
     elapsed_time = @elapsed _foreach_chunk(ensemblealg, trajectories) do irange
         if alg isa GCRK45
             _rk45!(
                 sols, prob, irange, alg, plan, dt, isoutside,
-                save_start, save_end, save_everystep, maxiters,
-                Val(SaveFields), Val(SaveWork), seed
+                save_start, save_end, save_everystep, maxiters, seed
             )
         else
             _rk4!(
                 sols, prob, irange, plan, dt, nt, nout, isoutside,
-                save_start, save_end, save_everystep, maxiters,
-                Val(SaveFields), Val(SaveWork), seed
+                save_start, save_end, save_everystep, maxiters, seed
             )
         end
     end
@@ -119,7 +114,7 @@ function _gc_time_type(prob::TraceGCProblem, dt)
     return typeof(prob.tspan[1] + dt_guess)
 end
 
-function _get_sol_type(prob::TraceGCProblem, dt, alg, ::Val{SaveFields}, ::Val{SaveWork}) where {SaveFields, SaveWork}
+function _get_sol_type(prob::TraceGCProblem, dt, alg)
     u0 = prob.u0
     tspan = prob.tspan
     T_t = _gc_time_type(prob, dt)
@@ -127,15 +122,7 @@ function _get_sol_type(prob::TraceGCProblem, dt, alg, ::Val{SaveFields}, ::Val{S
     # Force u to be Vector{SVector{4, T}}
     T = eltype(u0)
 
-    n_vars = 4
-    if SaveFields
-        n_vars += 6
-    end
-    if SaveWork
-        n_vars += 4
-    end
-
-    u = Vector{SVector{n_vars, T}}(undef, 0)
+    u = Vector{SVector{4, T}}(undef, 0)
     interp = LinearInterpolation(t, u)
 
     sol = build_solution(prob, alg, t, u; interp = interp)
@@ -144,8 +131,8 @@ end
 
 function _prepare_gc(
         prob::TraceGCProblem, trajectories, dt, plan,
-        save_start, save_end, save_everystep, alg, maxiters, ::Val{SaveFields}, ::Val{SaveWork}
-    ) where {SaveFields, SaveWork}
+        save_start, save_end, save_everystep, alg, maxiters
+    )
     ttotal = prob.tspan[2] - prob.tspan[1]
     if isnothing(dt)
         if alg isa GCRK4
@@ -182,22 +169,8 @@ function _prepare_gc(
         nout += 1
     end
 
-    sol_type = _get_sol_type(prob, dt, alg, Val(SaveFields), Val(SaveWork))
+    sol_type = _get_sol_type(prob, dt, alg)
     sols = Vector{sol_type}(undef, trajectories)
 
     return sols, nt, nout
-end
-
-@inline function _prepare_saved_data_gc(xv, p, t, ::Val{SaveFields}, ::Val{SaveWork}) where {SaveFields, SaveWork}
-    data = xv
-    if SaveFields
-        r = get_x(xv)
-        E = p.E(r, t)
-        B = p.B(r, t)
-        data = vcat(data, E, B)
-    end
-    if SaveWork
-        data = vcat(data, get_work_rates(xv, p, t))
-    end
-    return data
 end

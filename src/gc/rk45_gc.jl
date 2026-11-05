@@ -57,9 +57,8 @@ Apply RK45 method for particles with index in `irange`.
 """
 function _rk45!(
         sols, prob, irange, alg, plan, dt_initial, isoutside,
-        save_start, save_end, save_everystep, maxiters,
-        ::Val{SaveFields}, ::Val{SaveWork}, seed = nothing
-    ) where {SaveFields, SaveWork}
+        save_start, save_end, save_everystep, maxiters, seed = nothing
+    )
     (; tspan, p, u0) = prob
     (; abstol, reltol) = alg
     T = eltype(u0)
@@ -69,16 +68,8 @@ function _rk45!(
     max_growth = 5.0
     min_growth = 0.2
 
-    vars_dim = 4
-    if SaveFields
-        vars_dim += 6
-    end
-    if SaveWork
-        vars_dim += 4
-    end
-
     @inbounds for i in irange
-        traj = SVector{vars_dim, T}[]
+        traj = SVector{4, T}[]
         tsave = Tt[]
 
         rng = isnothing(seed) ? default_rng() : Xoshiro(_rng_seed(seed, i))
@@ -104,7 +95,7 @@ function _rk45!(
         end
 
         if save_start
-            push!(traj, _prepare_saved_data_gc(xv, p, t, Val(SaveFields), Val(SaveWork)))
+            push!(traj, xv)
             push!(tsave, t)
         end
 
@@ -156,19 +147,14 @@ function _rk45!(
                     while isave <= nsave && saveat_reached(plan.times[isave], t, plan.dir)
                         t_target = plan.times[isave]
                         push!(
-                            traj, _prepare_saved_data_gc(
-                                saveat_interpolate(t_prev, xv_prev, t, xv, t_target),
-                                p, t_target, Val(SaveFields), Val(SaveWork)
-                            )
+                            traj, saveat_interpolate(t_prev, xv_prev, t, xv, t_target)
                         )
                         push!(tsave, t_target)
                         isave += 1
                     end
                 elseif save_everystep
                     push!(
-                        traj, _prepare_saved_data_gc(
-                            xv, p, t, Val(SaveFields), Val(SaveWork)
-                        )
+                        traj, xv
                     )
                     push!(tsave, t)
                 end
@@ -188,7 +174,7 @@ function _rk45!(
         end
 
         if save_end && (isempty(tsave) || tsave[end] != t)
-            push!(traj, _prepare_saved_data_gc(xv, p, t, Val(SaveFields), Val(SaveWork)))
+            push!(traj, xv)
             push!(tsave, t)
         end
 
