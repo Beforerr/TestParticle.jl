@@ -514,7 +514,7 @@ def trace_gc(
         if alg not in gc_algs:
             raise ValueError(f"alg must be 'rk4' or 'rk45'; got {alg!r}")
         alg = gc_algs[alg]()
-    sols = TP.solve(prob, alg, **solve_kw)
+    sols = TP.solve(prob, alg, TP.EnsembleSerial(), **solve_kw)
 
     ts, us = jl._tp_extract(sols, bool(save_fields), bool(save_work))
     ts_py = [np.asarray(t) for t in ts]
