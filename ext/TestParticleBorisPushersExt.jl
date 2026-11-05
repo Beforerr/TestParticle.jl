@@ -1,7 +1,7 @@
 module TestParticleBorisPushersExt
 
 using TestParticle
-import TestParticle: TraceProblem, FullOrbit, AdaptiveHybrid,
+import TestParticle: TraceProblem, FullOrbit, AdaptiveHybrid, _is_default_f,
     SavingPlan, use_saveat, saveat_reached, saveat_interpolate, _span_direction,
     Field, ZeroField, FieldInterpolator, FieldInterpolator1D,
     FieldInterpolator2D, SphericalFieldInterpolator,
@@ -34,6 +34,34 @@ const FOProblem = TraceProblem{FullOrbit}
 
 _boris_rhs(u, p, t) = nothing
 
+# Boris solvers build their own update from `p.q2m`, `p.E` and `p.B`, so anything else in
+# the problem would be silently ignored.
+function _check_boris_problem(prob::FOProblem)
+    _is_default_f(FullOrbit, prob.f) || throw(
+        ArgumentError("Boris solvers integrate the Lorentz force and cannot use a custom `f`.")
+    )
+    hasproperty(prob.p, :F) && !(prob.p.F isa ZeroField) && throw(
+        ArgumentError("Boris solvers do not support the external force `F`.")
+    )
+    return
+end
+
+_check_boris_problem(prob::TraceProblem{M}) where {M} = throw(
+    ArgumentError("Boris solvers integrate the non-relativistic FullOrbit model, not $M.")
+)
+
+function SciMLBase.__solve(
+        eprob::EnsembleProblem{<:TraceProblem}, alg::AbstractBoris, ens::EnsembleKernel;
+        kwargs...
+    )
+    _check_boris_problem(eprob.prob)
+    return invoke(
+        SciMLBase.__solve,
+        Tuple{SciMLBase.AbstractEnsembleProblem, AbstractBoris, EnsembleKernel},
+        eprob, alg, ens; kwargs...
+    )
+end
+
 function _boris_problem(prob::FOProblem)
     T = eltype(prob.u0)
     tspan = (T(prob.tspan[1]), T(prob.tspan[2]))
@@ -44,6 +72,8 @@ function _boris_problem(prob::FOProblem)
 end
 
 function _boris_initial_dt(prob::FOProblem, alg)
+    hasproperty(alg, :safety) ||
+        throw(ArgumentError("$(nameof(typeof(alg))) needs a time step `dt`."))
     q2m = prob.p.q2m
     u0 = prob.u0
     r0 = SVector{3}(u0[1], u0[2], u0[3])
@@ -148,6 +178,7 @@ function SciMLBase.solve(
         seed = nothing,
         kwargs...
     ) where {F}
+    _check_boris_problem(prob)
     T = eltype(prob.u0)
     step = dt === nothing ? T(_boris_initial_dt(prob, alg)) : T(dt)
     _boris_check_limits(prob, step, alg, maxiters)
@@ -175,6 +206,9 @@ function SciMLBase.solve(
             _boris_finalize(sol, prob.p, Val(false), Val(false))
     end
 end
+
+SciMLBase.solve(prob::TraceProblem, alg::AbstractBoris; kwargs...) =
+    _check_boris_problem(prob)
 
 # --- AdaptiveHybrid Solver Implementation ---
 
