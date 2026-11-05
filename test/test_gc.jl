@@ -317,6 +317,53 @@ end
     @test sol_gc_analytic[1, end] ≈ 0.9906923500002904 rtol = 1.0e-5
 end
 
+@testset "Native solver control flow" begin
+    B_uniform(x) = SA[0.0, 0.0, 1.0e-8]
+    xv = [1.0, 0.0, 0.0, 0.0, 1.0e5, 1.0e4]
+    u_gc, p_gc = prepare_gc(xv, prepare(; B = B_uniform))
+    T = 2π * TP.mᵢ / (TP.qᵢ * 1.0e-8)
+
+    @test solve(TraceGCProblem(u_gc, (0.0, T), p_gc), GCRK4(); dt = T / 20) isa
+        SciMLBase.AbstractODESolution
+    @test solve(TraceGCProblem(u_gc, (0.0, T), p_gc), GCRK45()) isa
+        SciMLBase.AbstractODESolution
+
+    sol_back = solve(TraceGCProblem(u_gc, (T, 0.0), p_gc), GCRK45())
+    @test sol_back.t[end] ≈ 0.0 atol = 1.0e-12 * T
+    @test sol_back.u[end][3] ≈ u_gc[3] - T * u_gc[4] rtol = 1.0e-6
+    @test sol_back.retcode == ReturnCode.Success
+
+    sol_cut = solve(
+        TraceGCProblem(u_gc, (0.0, 1000T), p_gc),
+        GCRK45(; abstol = 1.0e-12, reltol = 1.0e-12); maxiters = 2
+    )
+    @test sol_cut.retcode == ReturnCode.MaxIters
+
+    # A trial step into NaN fields is rejected until the step size gives out.
+    B_box(x) = abs(x[3]) < 1.0e3 ? SA[0.0, 0.0, 1.0e-8] : SA[NaN, NaN, NaN]
+    u_box, p_box = prepare_gc(SA[0.0, 0.0, 0.0, 0.0, 1.0e4, 1.0e5], prepare(; B = B_box))
+    sol_box = solve(TraceGCProblem(u_box, (0.0, 1.0), p_box), GCRK45())
+    @test sol_box.retcode == ReturnCode.DtLessThanMin
+
+    # Each trajectory runs with the `p` and `u0` that `prob_func` gives it.
+    B_grad(x) = SA[0.0, 0.0, 1.0e-8 * (1 + x[1] / 1.0e6)]
+    u_grad, p_grad = prepare_gc(xv, prepare(; B = B_grad))
+    prob_grad = TraceGCProblem(SVector{4}(u_grad), (0.0, 5T), p_grad)
+    prob_func(prob, ctx) = remake(prob; p = (; prob.p..., μ = ctx.sim_id * prob.p.μ))
+    ens = solve(
+        EnsembleProblem(prob_grad; prob_func), GCRK4(), EnsembleSerial();
+        dt = T / 20, trajectories = 2
+    )
+    @test ens.u[1].u[end] ≈ solve(prob_grad, GCRK4(); dt = T / 20).u[end]
+    @test ens.u[2].prob.p.μ ≈ 2 * p_grad.μ
+    @test ens.u[2].u[end] != ens.u[1].u[end]
+
+    @test_throws ArgumentError prepare_gc(xv, prepare(; B = B_uniform, F = B_uniform))
+    @test prepare_gc(SVector{6}(xv), prepare(; B = B_uniform))[1] isa SVector{4}
+    u32, p32 = prepare_gc(Float32.(xv), prepare(; B = B_uniform))
+    @test eltype(u32) === Float32 && p32.μ isa Float32
+end
+
 @testset "GC FLR" begin
     # E varies along all three axes so a Laplacian that misses or mixes components fails.
     a, kx, ky, kz, Bz = 1.0e-9, 0.3, 0.2, 0.1, 1.0e-8

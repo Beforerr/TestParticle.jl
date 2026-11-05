@@ -60,6 +60,7 @@ function _trace_gc_native(
     (; abstol, reltol) = alg
     T = eltype(u0)
     Tt = typeof(tspan[1] + one(T))
+    tdir = plan.dir
 
     safety = 0.9
     max_growth = 5.0
@@ -78,8 +79,9 @@ function _trace_gc_native(
         Bmag = norm(p.B(get_x(xv), t))
         Bmag == 0 || q2m == 0 ? Tt(1.0e-6) : Tt(0.5 * 2π / abs(q2m * Bmag))
     else
-        Tt(dt_initial)
+        Tt(abs(dt_initial))
     end
+    dt *= tdir
 
     if save_start
         push!(traj, xv)
@@ -90,8 +92,8 @@ function _trace_gc_native(
     nsave = length(plan.times)
     isave = 1
     retcode = ReturnCode.Success
-    while t < tspan[2] && steps < maxiters
-        if t + dt > tspan[2]
+    while tdir * (tspan[2] - t) > 0 && steps < maxiters
+        if tdir * (t + dt - tspan[2]) > 0
             dt = tspan[2] - t
         end
 
@@ -153,7 +155,14 @@ function _trace_gc_native(
         scale = max(min_growth, min(scale, max_growth))
         dt *= Tt(scale)
 
-        dt < 1.0e-14 && break
+        if abs(dt) < 1.0e-14
+            retcode = ReturnCode.DtLessThanMin
+            break
+        end
+    end
+
+    if retcode == ReturnCode.Success && tdir * (tspan[2] - t) > 0
+        retcode = ReturnCode.MaxIters
     end
 
     if save_end && (isempty(tsave) || tsave[end] != t)
