@@ -202,7 +202,7 @@ This function is compatible with any spatial dimension.
 """
     get_gyrofrequency(B=5e-9; q=qᵢ, m=mᵢ)
 
-Return the gyrofrequency [rad/s].
+Return the magnitude of the gyrofrequency [rad/s].
 
 # Arguments
 
@@ -210,7 +210,7 @@ Return the gyrofrequency [rad/s].
   - `q`: Charge [C]. Default is proton charge.
   - `m`: Mass [kg]. Default is proton mass.
 """
-get_gyrofrequency(B = 5.0e-9; q = qᵢ, m = mᵢ) = ω = q * B / m
+get_gyrofrequency(B = 5.0e-9; q = qᵢ, m = mᵢ) = abs(q) * B / m
 
 @inline _get_exb_drift(E, B, Bmag) = (E × B) / Bmag^2
 
