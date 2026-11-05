@@ -7,7 +7,7 @@ if !isdefined(Main, :test_common)
 end
 
 using TestParticle
-using TestParticle: energy2velocity, full_to_gc, gc_to_full, get_gc
+using TestParticle: energy2velocity, gc_to_full, get_gc
 using TestParticle: sph2cart
 import TestParticle as TP
 using StaticArrays
@@ -73,10 +73,11 @@ E_const(x, t) = SA[1.0e-9, 0.0, 0.0]
             μ = 1.0e-15
             phase = π / 3
 
-            xu = gc_to_full(gc_state, param, μ, phase)
+            xu = gc_to_full(gc_state, (; param..., μ); phase)
             @test length(xu) == 6
 
-            gc_new, μ_new = full_to_gc(xu, param)
+            gc_new, p_new = prepare_gc(xu, param)
+            μ_new = p_new.μ
 
             @test gc_new[1:3] ≈ R rtol = 1.0e-5
             @test gc_new[4] ≈ vpar rtol = 1.0e-5
@@ -95,13 +96,14 @@ E_const(x, t) = SA[1.0e-9, 0.0, 0.0]
             gc_state = [SA[0.0, 0.0, 0.0]..., 0.0]
             μ = 0.0 # No gyromotion, only drift
 
-            xu = gc_to_full(gc_state, param2, μ)
+            xu = gc_to_full(gc_state, (; param2..., μ))
             v = xu[4:6]
             @test v[1] ≈ 1000.0 atol = 1.0e-5
             @test v[2] ≈ 0.0 atol = 1.0e-5
             @test v[3] ≈ 0.0 atol = 1.0e-5
 
-            gc_new, μ_new = full_to_gc(xu, param2)
+            gc_new, p_new = prepare_gc(xu, param2)
+            μ_new = p_new.μ
             @test gc_new[1:3] ≈ SA[0.0, 0.0, 0.0] atol = 1.0e-5
             @test gc_new[4] ≈ 0.0 atol = 1.0e-5
             @test μ_new ≈ 0.0 atol = 1.0e-10
@@ -116,8 +118,8 @@ E_const(x, t) = SA[1.0e-9, 0.0, 0.0]
 
             # For B in Z the perpendicular plane is XY, so phase 0 points along
             # +x and phase π/2 along +y.
-            v0 = gc_to_full(gc_state, param3, μ, 0.0)[4:6]
-            v90 = gc_to_full(gc_state, param3, μ, π / 2)[4:6]
+            v0 = gc_to_full(gc_state, (; param3..., μ); phase = 0.0)[4:6]
+            v90 = gc_to_full(gc_state, (; param3..., μ); phase = π / 2)[4:6]
 
             @test dot(normalize(v0), normalize(v90)) ≈ 0.0 atol = 1.0e-5
             @test isapprox(normalize(v0), SA[1.0, 0.0, 0.0], atol = 1.0e-5)
@@ -138,7 +140,7 @@ E_const(x, t) = SA[1.0e-9, 0.0, 0.0]
         tspan = (0.0, 1.0)
 
         stateinit_gc, param_gc = prepare_gc(
-            stateinit; B = dipole_field, species = Proton
+            stateinit, prepare(; B = dipole_field, species = Proton)
         )
         prob = TraceGCProblem(stateinit_gc, tspan, param_gc)
 
@@ -237,7 +239,7 @@ E_const(x, t) = SA[1.0e-9, 0.0, 0.0]
             r0 = [1.5 * TP.Rₑ, 0.0, 0.0]
             v0 = [0.0, 1.0e5, 1.0e5] # Arbitrary
             state_gc_0, param_gc_ready = prepare_gc(
-                vcat(r0, v0); B = dipole_field, species = Proton
+                vcat(r0, v0), prepare(; B = dipole_field, species = Proton)
             )
             prob_saving = TraceGCProblem(state_gc_0, tspan_saving, param_gc_ready)
 
@@ -323,7 +325,7 @@ end
 
     stateinit_gc,
         param_gc = prepare_gc(
-        stateinit; E = uniform_Ex, B = curved_B, species = Proton
+        stateinit, prepare(; E = uniform_Ex, B = curved_B, species = Proton)
     )
 
     prob_gc = ODEProblem(trace_gc!, stateinit_gc, tspan, param_gc)
@@ -352,7 +354,7 @@ end
     # E × B / B² = (Ey, -Ex, 0) / Bz
     drift = SA[Ey, -Ex, 0.0] / Bz
     ∇²drift = SA[-kz^2 * Ey, (kx^2 + ky^2) * Ex, 0.0] / Bz
-    r4 = (v[1]^2 + v[2]^2) / (4 * (param[1] * Bz)^2)
+    r4 = (v[1]^2 + v[2]^2) / (4 * (param.q2m * Bz)^2)
     @test dx ≈ drift + r4 * ∇²drift + SA[0.0, 0.0, v[3]] rtol = 1.0e-12
 end
 

@@ -90,7 +90,7 @@ z_fo = [u[3] for u in sol_fo.u]
 bottle_B_static(x) = bottle_B(x, 0.0)
 
 stateinit_gc, param_gc = TP.prepare_gc(
-    u0; B = bottle_B_static, species = Proton
+    u0, TP.prepare(; B = bottle_B_static, species = Proton)
 )
 prob_gc = ODEProblem(trace_gc!, stateinit_gc, tspan, param_gc)
 sol_gc = solve(prob_gc, Vern6());

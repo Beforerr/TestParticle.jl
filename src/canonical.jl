@@ -8,7 +8,7 @@ _grad_A_v(::ZeroField, x, t, v) = ZeroVector()
     p_can - p.q * _eval_field(eltype(x), p.pf.A, x, t)
 
 @inline _kinetic_to_velocity(p_kin, p, relativistic::Bool) = relativistic ?
-    p_kin / (p.m * √(1 + (p_kin ⋅ p_kin) / (p.m * p.c)^2)) : p_kin / p.m
+    p_kin / (p.m * √(1 + (p_kin ⋅ p_kin) / (p.m * _speed_of_light(p))^2)) : p_kin / p.m
 
 @inline function _trace_canonical(y, p, t, relativistic::Bool)
     (; q, pf) = p
@@ -31,10 +31,10 @@ function velocity_to_canonical(
         x0::AbstractVector, v0::AbstractVector, p;
         relativistic::Bool = false, t = 0.0
     )
-    (; q, m, c, pf) = p
+    (; q, m, pf) = p
     x = SA[x0[1], x0[2], x0[3]]
     v = SA[v0[1], v0[2], v0[3]]
-    γ = relativistic ? 1 / √(1 - (v ⋅ v) / c^2) : 1
+    γ = relativistic ? 1 / √(1 - (v ⋅ v) / _speed_of_light(p)^2) : 1
     return vcat(x, γ * m * v + q * _eval_field(eltype(x), pf.A, x, t))
 end
 
@@ -52,11 +52,16 @@ function canonical_to_velocity(u::AbstractVector, p; relativistic::Bool = false,
 end
 
 function canonical_hamiltonian(u::AbstractVector, p, t = 0.0; relativistic::Bool = false)
-    (; q, m, c, pf) = p
+    (; q, m, pf) = p
     x = get_x(u)
     p_kin = _kinetic_momentum(x, get_v(u), p, t)
     p² = p_kin ⋅ p_kin
-    K = relativistic ? √(m^2 * c^4 + c^2 * p²) : p² / (2 * m)
+    K = if relativistic
+        c = _speed_of_light(p)
+        √(m^2 * c^4 + c^2 * p²)
+    else
+        p² / (2 * m)
+    end
     phi = pf.phi isa ZeroField ? zero(eltype(x)) : pf.phi(x, t)
     return K + q * phi
 end

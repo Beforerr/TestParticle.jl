@@ -27,7 +27,7 @@ x0 = SA[0.0, 0.0, 0.0]
 v0 = SA[1.0e4, 0.0, 1.0e4]
 u0_full = vcat(x0, v0)
 u0_gc, param = TestParticle.prepare_gc(
-    u0_full; E = zero_E, B = uniform_B, species = Proton
+    u0_full, TestParticle.prepare(; E = zero_E, B = uniform_B, species = Proton)
 )
 
 function prob_func(prob, ctx)

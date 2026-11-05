@@ -30,11 +30,7 @@
         trace_relativistic(stateinit_s, param, t)
         trace_relativistic!(out6, stateinit, param, t)
 
-        stateinit_gc, param_gc = prepare_gc(
-            gc_init;
-            E = build_interpolator(E, (x, y, z); bc = FillExtrap(NaN)),
-            B = build_interpolator(B, (x, y, z); bc = FillExtrap(NaN))
-        )
+        stateinit_gc, param_gc = prepare_gc(gc_init, param)
         prob_gc = TraceGCProblem(stateinit_gc, tspan, param_gc)
         solve(prob_gc, GCRK4(); dt = 0.1)
         solve(prob_gc, GCRK45())

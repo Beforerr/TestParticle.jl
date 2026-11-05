@@ -112,45 +112,33 @@ cannot make the conversion worse than the zeroth-order one.
 end
 
 """
-    prepare_gc(xv; E = nothing, B = nothing, kw...) -> (state_gc, param_gc)
+    prepare_gc(xv, p; t = 0) -> (state_gc, param_gc)
 
-Initial guiding-center state `[X..., vpar]` from full-orbit state `xv` and parameters
-`(; q, q2m, μ, E, B)` for tracing it. Omitted fields are zero. `xv` is
-`[x, y, z, vx, vy, vz]`. Field arguments and keywords mirror [`prepare`](@ref).
-# TODO: support external forces
+Guiding-center state `[X..., vpar]` of the full-orbit state `xv = [x, y, z, vx, vy, vz]` at
+time `t` and the parameters from [`prepare`](@ref) with its magnetic moment `μ` added, in
+the float type of `xv`. The state is an `SVector` for a static `xv`.
+
+The guiding-center equations have no external force, so `p.F` must be absent.
 """
-function prepare_gc(xv; species = Proton, q = nothing, m = nothing, t = 0, kw...)
-    q = @something q species.q
-    m = @something m species.m
-    (; E, B) = prepare(; q, m, kw...)
-    X, vpar, q, q2m, μ, _ = _get_gc_parameters(xv, E, B, q, m, t)
+function prepare_gc(xv, p; t = 0)
+    hasproperty(p, :F) && !(p.F isa ZeroField) && throw(
+        ArgumentError("Guiding-center equations do not support the external force `F`.")
+    )
+    T = float(eltype(xv))
+    X, vpar, _, _, μ, _ = _get_gc_parameters(xv, p.E, p.B, p.q, p.m, t)
+    state = SVector{4, T}(X[1], X[2], X[3], vpar)
 
-    return [X..., vpar], (; q, q2m, μ, E, B)
+    return (xv isa StaticArray ? state : Vector(state)), (; p..., μ = T(μ))
 end
 
 """
-    full_to_gc(xu, param)
+    gc_to_full(state_gc, p; phase = 0, t = 0)
 
-Convert full particle state `xu` to guiding center state `state_gc` and magnetic moment `μ`.
-Returns `(state_gc, μ)`, where `state_gc = [R..., vpar]`.
+Full particle state `[x, y, z, vx, vy, vz]` of the guiding-center state `state_gc` at
+gyrophase `phase` and time `t`, with `p` from [`prepare_gc`](@ref).
 """
-function full_to_gc(xu, param, t = 0)
-    (; q2m, m, E, B) = param
-    X, vpar, _, _, μ, _ = _get_gc_parameters(xu, E, B, q2m * m, m, t)
-    state_gc = SVector{4}(X[1], X[2], X[3], vpar)
-
-    return state_gc, μ
-end
-
-"""
-    gc_to_full(state_gc, param, μ, phase=0)
-
-Convert guiding center state `state_gc` to full particle state `xu`.
-Returns `xu = [x, y, z, vx, vy, vz]`.
-"""
-function gc_to_full(state_gc, param, μ, phase = 0; t = 0)
-    (; q2m, m, E, B) = param
-    return Vector(_gc_to_full(state_gc, E, B, q2m * m, m, μ, t, phase))
+function gc_to_full(state_gc, p; phase = 0, t = 0)
+    return Vector(_gc_to_full(state_gc, p.E, p.B, p.q, p.m, p.μ, t, phase))
 end
 
 """

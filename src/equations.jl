@@ -56,13 +56,15 @@ function trace(y, p, t)
     return vcat(v, get_dv(v, y, p, t))
 end
 
-_speed_of_light(p) = hasproperty(p, :c) ? p.c : c
+@inline _speed_of_light(p) = @something p.c throw(
+    ArgumentError("Relativistic equations need `c`: pass it to `prepare` with `q` or `m`.")
+)
 
 """
     trace_relativistic!(dy, y, p, t)
 
 ODE equations for relativistic charged particle (x, γv) moving in EM field with in-place form.
-The speed of light is `p.c` when present, `c` in SI otherwise.
+The speed of light is `p.c`.
 """
 trace_relativistic!(dy, y, p, t) = _store!(dy, @inline trace_relativistic(y, p, t))
 

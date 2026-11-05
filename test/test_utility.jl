@@ -760,7 +760,7 @@ end
             @test ε_fo_scalar == 0.0
 
             # GC Solution
-            stateinit_gc, param_gc = prepare_gc(stateinit; B = B_func_disp, species = Ion(1, 1))
+            stateinit_gc, param_gc = prepare_gc(stateinit, prepare(; B = B_func_disp, species = Ion(1, 1)))
             prob_gc = ODEProblem(trace_gc!, stateinit_gc, tspan, param_gc)
             sol_gc = solve(prob_gc, Tsit5(); dt = 1.0e-6)
 
@@ -1066,7 +1066,7 @@ end
             E = build_interpolator(E, rect_grid; bc = TestParticle.FillExtrap(NaN)),
             B = build_interpolator(B, rect_grid; bc = TestParticle.FillExtrap(NaN))
         )
-        @test param[1] ≈ TP.qᵢ / TP.mᵢ
+        @test param.q2m ≈ TP.qᵢ / TP.mᵢ
     end
 end
 

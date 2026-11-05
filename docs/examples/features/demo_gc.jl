@@ -44,7 +44,7 @@ sol = solve(prob, Vern9())
 
 ## 2. Guiding Center Simulations
 stateinit_gc, param_gc = TP.prepare_gc(
-    stateinit; E = uniform_E, B = curved_B, species = Proton
+    stateinit, TP.prepare(; E = uniform_E, B = curved_B, species = Proton)
 )
 prob_gc = ODEProblem(trace_gc!, stateinit_gc, tspan, param_gc)
 sol_gc = solve(prob_gc, Vern9())
@@ -66,10 +66,11 @@ for k in eachindex(zrange), j in eachindex(yrange), i in eachindex(xrange)
 end
 
 stateinit_gc_num, param_gc_num = TP.prepare_gc(
-    stateinit;
-    E = uniform_E,
-    B = build_interpolator(B_numerical, (xrange, yrange, zrange); bc = TestParticle.FillExtrap(NaN), order = 3),
-    species = Proton
+    stateinit, TP.prepare(;
+        E = uniform_E,
+        B = build_interpolator(B_numerical, (xrange, yrange, zrange); bc = TestParticle.FillExtrap(NaN), order = 3),
+        species = Proton
+    )
 )
 
 prob_gc_num = ODEProblem(trace_gc!, stateinit_gc_num, tspan, param_gc_num)
@@ -217,7 +218,7 @@ function run_grad_B_sim(B_func, tspan)
     ## GC (Trace)
     stateinit_gc,
         param_gc = TP.prepare_gc(
-        stateinit; E = uniform_E, B = B_func, species = Proton
+        stateinit, TP.prepare(; E = uniform_E, B = B_func, species = Proton)
     )
     prob_gc = ODEProblem(trace_gc!, stateinit_gc, tspan, param_gc)
     sol_gc = solve(prob_gc, Vern9())
@@ -293,7 +294,7 @@ prob_full = ODEProblem(trace!, stateinit, tspan_bench, param_full)
 ## Guiding Center Problem
 stateinit_gc,
     param_gc = TP.prepare_gc(
-    stateinit; E = uniform_E, B = grad_B_small, species = Proton
+    stateinit, TP.prepare(; E = uniform_E, B = grad_B_small, species = Proton)
 )
 ## Save the perpendicular velocities on-the-fly.
 saved_values = SavedValues(Float64, SVector{3, Float64})

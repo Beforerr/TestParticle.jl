@@ -499,7 +499,7 @@ def trace_gc(
 
     stateinit_gc, param = TP.prepare_gc(
         _to_svector(np.concatenate([x0, v0])),
-        B=B_jl, E=E_jl, species=species_jl, **prepare_kw
+        TP.prepare(B=B_jl, E=E_jl, species=species_jl, **prepare_kw),
     )
     u0 = _to_svector(stateinit_gc)
     prob = TP.TraceGCProblem(u0, tuple(tspan), param)

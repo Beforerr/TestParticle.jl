@@ -41,7 +41,7 @@ B_along_z(r) = SA[0.0, 0.0, 1.0]
     @testset "NaN handling with DiscreteCallback" begin
         u0 = [0.9, 0.0, 0.0, 0.0, 1.0, 0.0] # Starts inside, moving out
         tspan = (0.0, 1.0)
-        p = (1.0, 1.0, E_nan, B_nan, (x, t) -> 0.0)
+        p = prepare(; q = 1.0, m = 1.0, E = E_nan, B = B_nan)
 
         @testset "Boris" begin
             prob = TraceProblem(u0, tspan, p)
@@ -69,7 +69,7 @@ B_along_z(r) = SA[0.0, 0.0, 1.0]
 
         @testset "GC RK4" begin
             u0_gc = [0.9, 0.0, 0.0, 1.0]
-            p_gc = (1.0, 1.0, 0.0, E_nan, B_nan)
+            p_gc = (; q = 1.0, q2m = 1.0, μ = 0.0, E = E_nan, B = B_nan)
             prob = TraceGCProblem(u0_gc, tspan, p_gc)
             sol = solve(prob, GCRK4(); dt = 0.2, isoutside = outside_or_nan)
 
@@ -80,7 +80,7 @@ B_along_z(r) = SA[0.0, 0.0, 1.0]
 
         @testset "GC RK45" begin
             u0_gc = [0.9, 0.0, 0.0, 1.0]
-            p_gc = (1.0, 1.0, 0.0, E_nan, B_nan)
+            p_gc = (; q = 1.0, q2m = 1.0, μ = 0.0, E = E_nan, B = B_nan)
             prob = TraceGCProblem(u0_gc, tspan, p_gc)
             sol = solve(prob, GCRK45(); dt = 0.01, isoutside = outside_or_nan)
 
@@ -91,7 +91,7 @@ B_along_z(r) = SA[0.0, 0.0, 1.0]
 
         @testset "GC RK45 without domain check" begin
             u0_gc = [0.9, 0.0, 0.0, 1.0]
-            p_gc = (1.0, 1.0, 0.0, E_nan, B_nan)
+            p_gc = (; q = 1.0, q2m = 1.0, μ = 0.0, E = E_nan, B = B_nan)
             prob = TraceGCProblem(u0_gc, tspan, p_gc)
             sol = solve(prob, GCRK45(); dt = 0.01)
 
@@ -126,7 +126,7 @@ B_along_z(r) = SA[0.0, 0.0, 1.0]
 
         @testset "Time rejection (GC RK4)" begin
             u0 = [0.0, 0.0, 0.0, 1.0e5, 0.0, 0.0]
-            stateinit_gc, param_gc = prepare_gc(u0; B = B_along_z, species = Proton)
+            stateinit_gc, param_gc = prepare_gc(u0, prepare(; B = B_along_z, species = Proton))
             tspan = (0.0, 1.0)
             prob = TraceGCProblem(stateinit_gc, tspan, param_gc)
             dt = 1.0e-4

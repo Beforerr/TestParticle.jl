@@ -90,7 +90,7 @@ function setup_field(r, θ, ϕ)
         ),
         species = Proton
     )
-    return param, param[4].field_function, param[3].field_function
+    return param, param.B.field_function, param.E.field_function
 end
 
 @testset "spherical GPUGrid" begin
@@ -191,7 +191,7 @@ end
                 ),
                 species = Proton
             )
-            fi = param[4].field_function
+            fi = param.B.field_function
             g = TP._to_gpu_grid(fi, CPU())
 
             err = 0.0
@@ -317,13 +317,13 @@ end
                 ),
                 species = Proton
             )
-            gB = TP._to_gpu_grid(param[4].field_function, CPU())
+            gB = TP._to_gpu_grid(param.B.field_function, CPU())
             stateinit = [2.0, 2.0, 2.0, 1.0, 0.0, 0.0]
 
             prob_host = TraceProblem(stateinit, tspan, param)
             prob_device = TraceProblem(
                 stateinit, tspan,
-                (param[1], param[2], param[3], TP.Field(gB), param[5])
+                (; param..., B = TP.Field(gB))
             )
 
             sol_host = TP.solve(prob_host, Boris(); dt)
@@ -361,13 +361,13 @@ end
             )
             stateinit = [2.0, 2.0, 2.0, 1.0, 0.0, 0.0]
 
-            gE = TP._to_gpu_grid(param[3].field_function, CPU())
-            gB = TP._to_gpu_grid(param[4].field_function, CPU())
+            gE = TP._to_gpu_grid(param.E.field_function, CPU())
+            gB = TP._to_gpu_grid(param.B.field_function, CPU())
 
             prob_host = TraceProblem(stateinit, tspan, param)
             prob_device = TraceProblem(
                 stateinit, tspan,
-                (param[1], param[2], TP.Field(gE), TP.Field(gB), param[5])
+                (; param..., E = TP.Field(gE), B = TP.Field(gB))
             )
 
             sol_host = TP.solve(prob_host, Boris(); dt)
