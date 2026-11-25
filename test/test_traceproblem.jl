@@ -119,6 +119,20 @@ using ..test_common: uniform_B, uniform_Ex
         @test prob_tp.u0 == u0_orig
     end
 
+    @testset "Speed of light" begin
+        # A species is in SI; `q` or `m` alone leaves the units, and so `c`, unknown.
+        @test param.c == TestParticle.c
+        p_norm = prepare(; B = uniform_B, q = 1.0, m = 1.0)
+        @test isnothing(p_norm.c)
+        @test TraceProblem(stateinit_sa, tspan, p_norm) isa TraceProblem{FullOrbit}
+        p_hand = (; q2m = 1.0, m = 1.0, E = param.E, B = param.B)
+        for M in (RelativisticOrbit, RelativisticGuidingCenter), p in (p_norm, p_hand)
+            @test_throws ArgumentError TraceProblem{M}(stateinit_sa, tspan, p)
+        end
+        p_rel = prepare(; B = uniform_B, q = 1.0, m = 1.0, c = 10.0)
+        @test TraceProblem{RelativisticOrbit}(stateinit_sa, tspan, p_rel).p.c == 10.0
+    end
+
     @testset "Float32 tracing" begin
         u0_f32 = Float32[x0..., v0...]
         tspan_f32 = (0.0f0, 1.0f-6)

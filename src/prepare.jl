@@ -83,12 +83,15 @@ prepare_field(::Nothing; erased = false) = ZeroField()
 """
     prepare(; E=nothing, B=nothing, F=nothing, species=Proton, q, m, c, erased=false)
 
-Build particle parameters `(; q, q2m, m, E, B, F)` from callable electric, magnetic, and
+Build particle parameters `(; q, q2m, m, c, E, B, F)` from callable electric, magnetic, and
 external force fields, for every model. Omitted fields are zero. Each callable accepts `x` or
 `(x, t)` and returns three components. Construct numerical fields with
 [`build_interpolator`](@ref) before calling `prepare`. See [`Field`](@ref) to select the
-calling convention. `q` and `m` override `species`; `c` sets the relativistic speed of light.
-Particle constants take the float type of the state when traced.
+calling convention. Particle constants take the float type of the state when traced.
+
+`q` and `m` override `species`. `c` is the speed of light for the relativistic models. It
+defaults to its SI value only with a `species`: with `q` or `m` the units are unknown, so it
+stays `nothing` and a relativistic problem requires it explicitly.
 
 # Examples
 ```jldoctest
@@ -122,13 +125,14 @@ function prepare(;
             "Array fields require build_interpolator(A, grids; bc)."
         )
     )
+    c = _default_c(c, q, m)
     q = @something q species.q
     m = @something m species.m
     E, B, F = map(f -> prepare_field(f; erased), (E, B, F))
-    p = (; q, q2m = q / m, m, E, B, F)
-    isnothing(c) && return p
-    return (; p..., c)
+    return (; q, q2m = q / m, m, c, E, B, F)
 end
+
+_default_c(c_, q, m) = isnothing(c_) && isnothing(q) && isnothing(m) ? c : c_
 
 """
     prepare_erased(; E = nothing, B = nothing, F = nothing, kwargs...)
@@ -174,13 +178,15 @@ _grad_A(::Nothing, A; erased = false) =
     (x, t) -> SMatrix{3, 3}(ForwardDiff.jacobian(r -> A(r, t), x)')
 
 """
-    prepare(pf::PotentialField; species = Proton, q = nothing, m = nothing, c = c)
+    prepare(pf::PotentialField; species = Proton, q = nothing, m = nothing, c = nothing)
 
-Return parameters `(; q, m, c, pf)` for `TraceCanonicalProblem`.
+Return parameters `(; q, m, c, pf)` for `TraceCanonicalProblem`, with `c` defaulting as in
+[`prepare`](@ref).
 """
 function prepare(
-        pf::PotentialField; species = Proton, q = nothing, m = nothing, c = c
+        pf::PotentialField; species = Proton, q = nothing, m = nothing, c = nothing
     )
+    c = _default_c(c, q, m)
     q = @something q species.q
     m = @something m species.m
     return (; q, m, c, pf)

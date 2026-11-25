@@ -122,6 +122,8 @@ function TraceProblem{M}(
     ) where {M, iip}
     _equations_model(f) in (nothing, M) ||
         throw(ArgumentError("The equations of $(_equations_model(f)) do not fit the model $M."))
+    # Fail here rather than at the first step of `solve`.
+    M <: _RelativisticModel && _speed_of_light(p)
     u0 = _initial_state(M, u0, tspan, p)
     tspan, p = _promote_trace_args(u0, tspan, p)
     return TraceProblem{
@@ -156,6 +158,9 @@ function solve(
 end
 
 const _GCModel = Union{GuidingCenter, RelativisticGuidingCenter}
+const _RelativisticModel = Union{
+    RelativisticOrbit, RelativisticCanonical, RelativisticGuidingCenter,
+}
 const _GC_ODE_FUNC = ODEFunction{false, FullSpecialize}(trace_gc)
 const _GC_REL_ODE_FUNC = ODEFunction{false, FullSpecialize}(trace_gc_relativistic)
 

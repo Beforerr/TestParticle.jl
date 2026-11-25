@@ -23,6 +23,10 @@ end
     return sqrt(1 + u² / oftype(float(u²), c_val)^2)
 end
 
+# Non-relativistic models ignore `c`, so parameters without it still convert.
+@inline _gc_speed_of_light(::Union{GuidingCenter, FullOrbit}, p) = nothing
+@inline _gc_speed_of_light(model, p) = _speed_of_light(p)
+
 @inline _gc_to_full_gamma(::GuidingCenter, vpar, w², c_val) = one(w²)
 @inline function _gc_to_full_gamma(::RelativisticGuidingCenter, vpar, w², c_val)
     u² = vpar^2 + w²
@@ -163,7 +167,7 @@ true
 function full_to_gc(xv, p; t = 0, model = GuidingCenter())
     T = float(eltype(xv))
     X, vpar, _, _, μ, _ = _get_gc_parameters(
-        xv, p.E, p.B, p.q, p.m, t, model, _speed_of_light(p)
+        xv, p.E, p.B, p.q, p.m, t, model, _gc_speed_of_light(model, p)
     )
     state = SVector{5, T}(X[1], X[2], X[3], vpar, μ)
     return xv isa StaticArray ? state : Vector(state)
@@ -185,7 +189,7 @@ function gc_to_full(state_gc, p; phase = 0, t = 0, model = GuidingCenter())
     return Vector(
         _gc_to_full(
             state_gc, p.E, p.B, p.q, p.m, t, phase, model,
-            _speed_of_light(p)
+            _gc_speed_of_light(model, p)
         )
     )
 end
@@ -273,7 +277,7 @@ function get_gc(xu, param; use_vE::Bool = false, model = GuidingCenter())
     if use_vE
         E_field = param.E
         E = E_field(xu, t)
-        γ = _gc_lorentz_factor_full(v, model, _speed_of_light(param))
+        γ = _gc_lorentz_factor_full(v, model, _gc_speed_of_light(model, param))
         v = v - γ * ((E × B) / B²)
     end
 

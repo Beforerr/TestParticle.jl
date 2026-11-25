@@ -9,13 +9,17 @@ _grad_A_v(::ZeroField, x, t, v) = ZeroVector()
 
 @inline _kinetic_to_velocity(p_kin, ::Canonical, p) = p_kin / p.m
 @inline _kinetic_to_velocity(p_kin, ::RelativisticCanonical, p) =
-    p_kin / (p.m * √(1 + (p_kin ⋅ p_kin) / (p.m * p.c)^2))
+    p_kin / (p.m * √(1 + (p_kin ⋅ p_kin) / (p.m * _speed_of_light(p))^2))
 
 _velocity_to_kinetic(v, ::Canonical, p) = p.m * v
-_velocity_to_kinetic(v, ::RelativisticCanonical, p) = p.m * v / √(1 - (v ⋅ v) / p.c^2)
+_velocity_to_kinetic(v, ::RelativisticCanonical, p) =
+    p.m * v / √(1 - (v ⋅ v) / _speed_of_light(p)^2)
 
 _kinetic_energy(p², ::Canonical, p) = p² / (2 * p.m)
-_kinetic_energy(p², ::RelativisticCanonical, p) = √(p.m^2 * p.c^4 + p.c^2 * p²)
+function _kinetic_energy(p², ::RelativisticCanonical, p)
+    c = _speed_of_light(p)
+    return √(p.m^2 * c^4 + c^2 * p²)
+end
 
 @inline function _trace_canonical(y, model, p, t)
     (; q, pf) = p

@@ -161,7 +161,7 @@ trace_gc(y, p, t) = _trace_gc(y, GuidingCenter(), p, t)
 
 Relativistic guiding-center equations in in-place form for state `y = (X_x, X_y, X_z, u_∥, μ)`,
 where `u_∥ = γ v_∥` is the parallel proper velocity and `μ = p_⊥² / (2 m B)` is the
-relativistic magnetic moment. The speed of light is `p.c` when present, `c` in SI otherwise.
+relativistic magnetic moment. The speed of light is `p.c`.
 """
 trace_gc_relativistic!(dy, y, p, t) =
     _store!(dy, @inline trace_gc_relativistic(y, p, t))
